@@ -1,0 +1,19 @@
+# binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# test binary, built with `go test -c`
+*.test
+
+# output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# direnv
+.envrc
