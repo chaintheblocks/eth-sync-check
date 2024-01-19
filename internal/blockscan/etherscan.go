@@ -20,6 +20,10 @@ func EtherscanGetCurrentBlockNumber(apiKey string, chainID int) (uint64, error) 
 		baseURL = "https://api-goerli.etherscan.io"
 	case 11155111:
 		baseURL = "https://api-sepolia.etherscan.io"
+	case 137:
+		baseURL = "https://api.polygonscan.com"
+	case 80001:
+		baseURL = "https://api-testnet.polygonscan.com"
 	default:
 		return 0, fmt.Errorf("unsupported chainID: %d", chainID)
 	}

@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -39,11 +40,11 @@ var (
 	})
 	consensusSyncDistanceGauge = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "sync_consensus_sync_distance",
-		Help: "Sync distance in the consensus node",
+		Help: "Sync distance in the consensus node (for polygon, this is time in seconds)",
 	})
 )
 
-func collectMetrics(apiKey string, chainID int, consensusHTTP string) (map[string]uint64, map[string]interface{}, error) {
+func collectMetrics(apiKey string, chainID int, consensusHTTP string, isPolygon bool) (map[string]uint64, map[string]interface{}, error) {
 	executionMetrics, err := collector.CollectExecutionMetrics(apiKey, chainID)
 	if err != nil {
 		if strings.Contains(err.Error(), "unsupported chainID") {
@@ -52,34 +53,58 @@ func collectMetrics(apiKey string, chainID int, consensusHTTP string) (map[strin
 		}
 	}
 
-	consensusMetrics, err := collector.CollectConsensusMetrics(consensusHTTP)
-	if err != nil {
-		return nil, nil, err
+	var consensusMetrics map[string]interface{}
+
+	if isPolygon {
+		consensusMetrics, err = collector.CollectConsensusMetricsPolygon(consensusHTTP)
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		consensusMetrics, err = collector.CollectConsensusMetrics(consensusHTTP)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
-	return executionMetrics, consensusMetrics, nil
+	return executionMetrics, consensusMetrics, err
 }
 
-func LogMetrics(etherscanAPIKey, consensusHTTP string, chainID int) error {
-	executionMetrics, consensusMetrics, err := collectMetrics(etherscanAPIKey, chainID, consensusHTTP)
+func LogMetrics(etherscanAPIKey, consensusHTTP string, chainID int, isPolygon bool) error {
+	executionMetrics, consensusMetrics, err := collectMetrics(etherscanAPIKey, chainID, consensusHTTP, isPolygon)
 	if err != nil {
+		log.Printf("failed collecting metrics: %s", err)
 		return err
 	}
 
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Current Block", "Local Highest", "Network Highest", "Local Diff", "Network Diff", "CL Slot", "CL Slot Distance", "CL Status", "CL Syncing", "CL Optimistic"})
-	table.Append([]string{
-		fmt.Sprintf("%d", executionMetrics["executionCurrentBlock"]),
-		fmt.Sprintf("%d", executionMetrics["executionLocalHighestBlock"]),
-		fmt.Sprintf("%d", executionMetrics["executionNetworkHighestBlock"]),
-		fmt.Sprintf("%d", executionMetrics["executionLocalDiff"]),
-		fmt.Sprintf("%d", executionMetrics["executionNetworkDiff"]),
-		fmt.Sprintf("%d", consensusMetrics["consensusCurrentSlot"]),
-		fmt.Sprintf("%d", consensusMetrics["consensusSyncDistance"]),
-		fmt.Sprintf("%d", consensusMetrics["consensusStatus"]),
-		fmt.Sprintf("%v", consensusMetrics["consensusIsSyncing"]),
-		fmt.Sprintf("%v", consensusMetrics["consensusIsOptimistic"]),
-	})
+	if isPolygon {
+		table.SetHeader([]string{"Current Block", "Local Highest", "Network Highest", "Local Diff", "Network Diff", "CL Slot", "CL Slot Time", "CL Syncing"})
+		table.Append([]string{
+			fmt.Sprintf("%d", executionMetrics["executionCurrentBlock"]),
+			fmt.Sprintf("%d", executionMetrics["executionLocalHighestBlock"]),
+			fmt.Sprintf("%d", executionMetrics["executionNetworkHighestBlock"]),
+			fmt.Sprintf("%d", executionMetrics["executionLocalDiff"]),
+			fmt.Sprintf("%d", executionMetrics["executionNetworkDiff"]),
+			fmt.Sprintf("%d", consensusMetrics["consensusCurrentSlot"]),
+			fmt.Sprintf("%f ago", consensusMetrics["consensusSyncDistance"]),
+			fmt.Sprintf("%v", consensusMetrics["consensusIsSyncing"]),
+		})
+	} else {
+		table.SetHeader([]string{"Current Block", "Local Highest", "Network Highest", "Local Diff", "Network Diff", "CL Slot", "CL Slot Distance", "CL Status", "CL Syncing", "CL Optimistic"})
+		table.Append([]string{
+			fmt.Sprintf("%d", executionMetrics["executionCurrentBlock"]),
+			fmt.Sprintf("%d", executionMetrics["executionLocalHighestBlock"]),
+			fmt.Sprintf("%d", executionMetrics["executionNetworkHighestBlock"]),
+			fmt.Sprintf("%d", executionMetrics["executionLocalDiff"]),
+			fmt.Sprintf("%d", executionMetrics["executionNetworkDiff"]),
+			fmt.Sprintf("%d", consensusMetrics["consensusCurrentSlot"]),
+			fmt.Sprintf("%d", consensusMetrics["consensusSyncDistance"]),
+			fmt.Sprintf("%d", consensusMetrics["consensusStatus"]),
+			fmt.Sprintf("%v", consensusMetrics["consensusIsSyncing"]),
+			fmt.Sprintf("%v", consensusMetrics["consensusIsOptimistic"]),
+		})
+	}
 	table.Render()
 
 	if err != nil {
@@ -90,8 +115,8 @@ func LogMetrics(etherscanAPIKey, consensusHTTP string, chainID int) error {
 }
 
 // Collect metrics and update in prometheus
-func UpdatePrometheusMetrics(etherscanAPIKey, consensusHTTP string, chainID int) error {
-	executionMetrics, consensusMetrics, err := collectMetrics(etherscanAPIKey, chainID, consensusHTTP)
+func UpdatePrometheusMetrics(etherscanAPIKey, consensusHTTP string, chainID int, isPolygon bool) error {
+	executionMetrics, consensusMetrics, err := collectMetrics(etherscanAPIKey, chainID, consensusHTTP, isPolygon)
 	if err != nil {
 		return err
 	}
@@ -102,7 +127,11 @@ func UpdatePrometheusMetrics(etherscanAPIKey, consensusHTTP string, chainID int)
 	executionLocalDiffGauge.Set(float64(executionMetrics["executionLocalDiff"]))
 	executionNetworkDiffGauge.Set(float64(executionMetrics["executionNetworkDiff"]))
 	consensusCurrentSlotGauge.Set(float64(consensusMetrics["consensusCurrentSlot"].(uint64)))
-	consensusSyncDistanceGauge.Set(float64(consensusMetrics["consensusSyncDistance"].(uint64)))
+	if isPolygon {
+		consensusSyncDistanceGauge.Set(float64(consensusMetrics["consensusSyncDistance"].(float64)))
+	} else {
+		consensusSyncDistanceGauge.Set(float64(consensusMetrics["consensusSyncDistance"].(uint64)))
+	}
 
 	return nil
 }

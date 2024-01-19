@@ -39,10 +39,18 @@ var rootCmd = &cobra.Command{
 			log.Printf("warn: failed to get chain id: %s", err)
 		}
 
+		var isPolygon bool
+
+		if chainID == 137 || chainID == 80001 {
+			isPolygon = true
+		} else {
+			isPolygon = false
+		}
+
 		if daemon {
 			go func() {
 				for {
-					err := metrics.UpdatePrometheusMetrics(etherscanAPIKey, consensusHTTP, chainID)
+					err := metrics.UpdatePrometheusMetrics(etherscanAPIKey, consensusHTTP, chainID, isPolygon)
 					if err != nil {
 						log.Printf("encountered error when collecting metrics: %s", err)
 					}
@@ -54,7 +62,7 @@ var rootCmd = &cobra.Command{
 			http.Handle("/metrics", promhttp.Handler())
 			log.Fatal(http.ListenAndServe(fmt.Sprintf(":%s", metricsPort), nil))
 		} else {
-			metrics.LogMetrics(etherscanAPIKey, consensusHTTP, chainID)
+			metrics.LogMetrics(etherscanAPIKey, consensusHTTP, chainID, isPolygon)
 		}
 	},
 }

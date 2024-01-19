@@ -16,7 +16,7 @@ func GetJSON(url string, target interface{}) error {
 }
 
 func GetStatusCode(url string) (int, error) {
-	r, err := http.Head(url)
+	r, err := http.Get(url)
 	if err != nil {
 		return 0, err
 	}

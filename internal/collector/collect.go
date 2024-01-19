@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/ethereum/go-ethereum/ethclient"
 
@@ -117,6 +118,52 @@ func CollectConsensusMetrics(beaconEndpoint string) (map[string]interface{}, err
 		"consensusIsSyncing":    consensusIsSyncing,
 		"consensusIsOptimistic": consensusIsOptimistic,
 		"consensusStatus":       consensusStatus,
+	}
+
+	return metrics, nil
+}
+
+func CollectConsensusMetricsPolygon(heimdallEndpoint string) (map[string]interface{}, error) {
+	// send request to get syncing data
+	type Result struct {
+		Data struct {
+			HeadSlot        string `json:"latest_block_height"`
+			CurrentSlotTime string `json:"latest_block_time"`
+			IsSyncing       bool   `json:"catching_up"`
+		} `json:"sync_info"`
+	}
+
+	type Response struct {
+		Result Result `json:"result"`
+	}
+
+	var response Response
+
+	err := util.GetJSON(fmt.Sprintf("%s/status", heimdallEndpoint), &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get consensus syncing data: %v", err)
+	}
+
+	consensusCurrentSlot, err := strconv.ParseUint(response.Result.Data.HeadSlot, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get consensus syncing data: %v", err)
+	}
+	consensusCurrentSlotTime := response.Result.Data.CurrentSlotTime
+
+	slotTime, err := time.Parse(time.RFC3339Nano, consensusCurrentSlotTime)
+	if err != nil {
+		fmt.Println("Error parsing timestamp:", err)
+	}
+	currentTime := time.Now()
+	duration := currentTime.Sub(slotTime)
+	consensusSyncDistance := float64(duration.Seconds())
+
+	consensusIsSyncing := response.Result.Data.IsSyncing
+
+	metrics := map[string]interface{}{
+		"consensusCurrentSlot":  consensusCurrentSlot,
+		"consensusSyncDistance": consensusSyncDistance,
+		"consensusIsSyncing":    consensusIsSyncing,
 	}
 
 	return metrics, nil
